@@ -1,0 +1,123 @@
+CHANGES FOR PRODUCTION
+IN DOWNLOAD Backups change directory name.
+vs_upload_backup change directory name from SERVER[DOCUMENT_ROOT] and add is_dir conditional
+
+Version 2 process -> Here is an overall step by step explanation of the process for storing virtue results and displaying them.
+
+  1. User takes first survey.
+  2. After submission the return code is saved in entry.
+  3. Upon return for second part of survey, user will enter the return code into a form which will check all the entries to see if there are any matches for that code. The form id of that return code will determine the next survey to be taken and will redirect user to that survey. The return code field and previous form id field is populated based on URL parameters we pass to the redirect URL.
+  4. On Submission, the plugin will collect both entries based on return code, combine the form values in one array and then run the result calculation on those values and store results in a transient object with a meta key as the return code.
+  3. On the results page, use a shortcode to pull the transient using URL parameters.
+    a. If a user comes back to see results again, we will use the form for viewing results again to create a results URL parameter as the code entered in form field.
+
+Version 1 Process-> Here is an overall step by step explanation of the process for storing virtue results and displaying them.
+
+      1. User takes survey.
+      2. On Submission =>
+        If user is logged in:
+          a. Calculate and store results in an object.
+          b. Store result object in user meta.
+          (See #CALC_INC_DEC below for more info )
+          c. Calculate increase and/or decrease of virtues from previous tests.
+        If user is not logged in:
+          a. Calculate and store results in an object.
+          b. Store result object in a transient that lasts a day.
+      3. On the results page, use a shortcode to pull either the transient using URL parameters from form submissions or user meta if user is logged in.
+        a. If logged in AND there are positive and/or negative results, display them.
+      4. Offer a form to register and log in if the user is not logged in; once completed, the user's transient data will be stored in the user's meta information.
+
+
+#CALC_INC_DEC
+We collect survey result objects individually with separate meta keys.
+Later, we will iterate through all the meta key values to calculate the
+increase or decrease of virtue values.
+
+#CALC_INC_FN
+Positive results are calculated by comparing the two most recent results.
+Based on these results, we can determine if the user has increased any score by more than 3% and return the percentage and the score increase in an array.
+
+#CALC_DEC_FN
+Negative results are calculated by comparing the last three results. The
+negative number has to be steadily decreasing between 1, 2, and 3. If on
+a survey result there is any increase then it does not count as a decreased
+virtue.
+
+#VS_RESULT_OBJ
+Save the results in a custom object to make it easier to output results in the front end and maintain data integrity.
+
+#VS_STORAGE
+Map result numbers to hidden fields on form so we have results in two places for data integrity.
+
+#FIELD_MAPPING
+We need this to make sure we know which questions matched which field at the time this was taken in case the form is ever changed in the future.
+
+#MAPPING_FIELDS
+This function will take the list of virtues and check the admin label of each question of the form that taken by the user and create an associative array with admin label as key and field id as value.
+
+#NOTE_2
+These percentages are more difficult than what I had there. Will have to revisit later.
+
+#PUBLIC_CALC_LOOP
+This loop takes the form id and entry associative array, iterates through it and gets the form using the GFAPI. Then it maps that form in the current iteration and iterates through the multidimensional array. Which will do the calculation on each value in the current entry associated with that form. It then adds those values to the calculated average in the $calculated_survey_results with the virtue as the key. Then we sort the value by the values.
+
+#RETURN_CODE_TRANSIENT
+When the first form is submitted the form id, entry id, and complimenting form id are added to a transient that uses the return code in its key so we can retrieve that data later when directing the user to the next form and when calculating the results.
+
+#OUTPUT_SURVEY_TWO_PAGE
+The page that houses the second part of the survey is just a page with a shortcode that outputs a form based on URL parameters.
+When users are redirect to this page it is from the form that asks for
+their return code. The correct corresponding form id is placed within
+the URL parameters. If it is not then we need the user to resubmit the return
+code again.
+
+#RANDOM_CODE_GENERATION
+In order to make sure that cache does affect the generation of the code we use a js script to attach the code to the url of the "Take Part One" button. Because there are two different versions of the survey depending on if the user is an adult or not the js script when requesting the new url will specify if the request is coming from the adult landing page.
+
+|REST API INFO|
+The following are the available rest routes:
+
+/upload-backups/ => Handles uploading the backup form and entry files.
+
+/update-virtue-result/ => Handles the updating of a virtues result information.
+Request parameters:
+  virtue (required) => The virtue to update.
+  definition => The definition to be added to the virtue.
+  imageID => This id of the image selected for that virtue.
+
+/get-virtue-result/ => Handles the retrieval of virtue result information.
+Request parameters:
+  virtue (required) => The virtue information to retrieve.
+
+/get-random-survey/ => Handles the creation of a random survey URL.
+Request parameters:
+  formID => The form ID of the survey just taken.
+  retake => A bool as to whether the request is for a retake URL.
+  adult  => A bool as to whether this is the adult version of survey.
+
+/get-survey-result/ => Handles the retrieval of survey results.
+Request parameters:
+  returnCode => The return code of the survey to retrieve.
+
+  #RANDOMIZATION_OVERVIEW
+  Oh boy this was a doozy.
+  The way we randomize the question order is by using the following filters and functions.
+
+    Step 1: add_action( 'gform_pre_render_{form ID}'...);
+    This action is used to manipulate the form and randomize the question order.
+    If running for the first time we set the session variable $_SESSION["raw-form-fields-$survey_session"];
+    The subsequent calls will just use that variable to reorder the fields.
+
+    Step 2: add_filter( 'gform_pre_validation_{form ID}'...);
+    This filter is used to change the original form into the randomized form before Gravity Forms validates and checks the submission of each page.
+
+    Step 3: add_action( 'gform_field_validation_{form ID}'...);
+    For some reason that I haven't been able to determine, Gravity Forms does not remove the failed validation message on corrected field submissions. Because of this we have to use this filter to force Gravity Forms to turn of failed validation if the field is correctly filled out.
+
+  #RANDOMIZATION_FUNCTION
+    The order by which gravity fields puts the fields onto the screen is directly correlated with the order of the array the form fields are stored in.
+    The first step is to find all the correct fields we want to randomized. This is achieved by iterating through the fields, checking if a particular class is attached to it and putting the index of the that field into an array. Then the indexes are shuffled in that array thus creating the random order of fields.
+
+    Then we iterate through the array once more and if the current field index is not in the array we created before we put that item back at the same index thus in the same position as it was placed in the form. If the field is a page field, we take the page number and set that to a variable that we use to set the page number of the field we are reordering later. (Gravity Forms uses the page number to decide what needs to be validated in the backend.)
+
+    If the field is within in our randomized array of indexes of correct fields we take the top index out of our randomized array using array_pop and place the random indexed field into the slot with the currently iterated index. Since we are removing the index from the shuffled array it will not repeat.
